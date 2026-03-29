@@ -5,6 +5,21 @@ from ml.model import TenderRiskModel, FEATURE_COLS
 
 st.set_page_config(page_title="Tender Risk AI Pro", page_icon="🔍", layout="wide")
 
+def get_single_ai_comment(result):
+    """Генерация развернутого комментария для одиночного тендера"""
+    score = result["final_score"]
+    # Берем описание самого подозрительного фактора
+    top_feat = result["top_features"][0]["description"] if result["top_features"] else "Неизвестно"
+    
+    if score >= 75:
+        return f"🚨 **Критическая аномалия.** Главный триггер: *{top_feat}*. Высокая вероятность 'заточки' или сговора. Требуется полная блокировка и проверка!"
+    elif score >= 50:
+        return f"⚠️ **Высокий риск.** Параметры выбиваются из нормы. Основная причина: *{top_feat}*. Рекомендуется ручной аудит документации."
+    elif score >= 25:
+        return f"🔍 **Средний риск.** Есть небольшие отклонения (влияет: *{top_feat}*). Возможно, это специфика отрасли, но стоит присмотреться."
+    else:
+        return "✅ **Типовой тендер.** Подозрительных паттернов не обнаружено, всё в рамках рынка."
+
 @st.cache_resource
 def load_model():
     return TenderRiskModel.load("ml/model.pkl")
@@ -78,9 +93,57 @@ with tab1:
 
 with tab2:
     st.header("Проверка одиночного тендера")
-    # Здесь остается логика из предыдущего сообщения с ползунками
     col_input, col_res = st.columns([1, 1])
     
     with col_input:
-        st.info("Используйте боковую панель или введите данные здесь для быстрой проверки.")
+        st.info("Заполните ключевые параметры тендера для быстрой проверки:")
+        
+        with st.form("single_tender_form"):
+            # Группа основных признаков
+            m_deadline = st.number_input("Минуты до дедлайна (норма > 1440)", 0, 10000, 1440)
+            ip_coll = st.selectbox("Совпадение IP участников (0 - нет, 1 - да)", [0, 1], index=0)
+            w_rate = st.slider("Исторический Win-rate победителя", 0.0, 1.0, 0.15)
+            participants = st.number_input("Число участников", 1, 50, 5)
+            price_red = st.slider("Снижение цены от рынка (%)", 0.0, 1.0, 0.15)
+            
+            # Кнопка отправки формы
+            submitted = st.form_submit_button("Анализировать риск", type="primary")
+
+    with col_res:
+        if submitted:
+            # Собираем данные. Все, что не ввели явно, заполняем нулями для безопасности
+            input_data = {f: 0.0 for f in FEATURE_COLS}
+            input_data.update({
+                "minutes_before_deadline": m_deadline,
+                "ip_collision": ip_coll,
+                "winner_win_rate": w_rate,
+                "participants_count": participants,
+                "price_reduction_pct": price_red
+            })
+            
+            result = model.predict(input_data)
+            score = result["final_score"]
+            level = result["risk_level"]
+            
+            st.subheader("Вердикт системы")
+            
+            # Красивая карточка уровня риска
+            st.markdown(f"""
+                <div class="risk-card {level}">
+                    <h3 style="margin-top:0;">Уровень: {level.upper()}</h3>
+                    <h1 style="margin:0;">Score: {score:.1f}%</h1>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Комментарий ИИ
+            st.markdown("### 🤖 Комментарий ИИ:")
+            st.write(get_single_ai_comment(result))
+            
+            st.markdown("---")
+            st.write("**Топ-3 фактора риска (SHAP):**")
+            for feat in result["top_features"][:3]:
+                icon = "🔺" if feat["direction"] == "risk_up" else "🔹"
+                st.write(f"{icon} {feat['description']} (Влияние: {feat['shap_weight']:.3f})")
+        else:
+            st.write("👈 Введите данные слева и нажмите кнопку анализа.")
         
