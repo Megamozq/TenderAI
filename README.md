@@ -92,9 +92,7 @@ cd tenderguard-ai
 
 pip install -r requirements.txt
 
-python data/generate_data.py   # сгенерировать 1000 тендеров
-python train.py                # обучить модель (~10 секунд)
-python demo.py                 # запустить демонстрацию
+python -m streamlit run app.py
 ```
 
 ---
